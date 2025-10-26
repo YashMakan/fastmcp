@@ -1,0 +1,6 @@
+# melos_managed_dependency_overrides: fastmcp,fastmcp_generator
+dependency_overrides:
+  fastmcp:
+    path: ../packages/fastmcp
+  fastmcp_generator:
+    path: ../packages/fastmcp_generator

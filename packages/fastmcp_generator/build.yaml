@@ -1,0 +1,9 @@
+builders:
+  fastmcp_builder:
+    import: "package:fastmcp_generator/fastmcp_generator.dart"
+    builder_factories: ["fastmcpBuilder"]
+    build_extensions: { ".dart": [".fastmcp.g.dart"] }
+    auto_apply: dependents
+    build_to: source
+    # The 'part_combiner' is implicitly used by SharedPartBuilder,
+    # so we no longer need to specify it.

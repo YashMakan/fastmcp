@@ -1,0 +1,48 @@
+name: fastmcp
+repository: https://github.com/yashmakan/fastmcp
+
+packages:
+  - packages/*
+  - example
+
+scripts:
+  bootstrap:
+    run: melos bootstrap --scope="**"
+    description: Bootstrap all packages and the example project.
+
+  build:
+    packageFilters:
+      dependsOn: build_runner
+    run: melos exec --concurrency=1 -- "dart run build_runner build --delete-conflicting-outputs"
+    description: Run build_runner for all packages that need it.
+
+  test:
+    run: melos exec -- "dart test"
+    description: Run tests in all packages.
+
+  analyze:
+    run: melos exec -- "dart analyze"
+    description: Run static analysis on all packages.
+
+  clean:
+    run: melos exec -- "git clean -dfX"
+    description: Clean all build artifacts.
+
+  publish:dry-run:
+    packageFilters:
+      ignore:
+        - "example"
+    run: melos exec -- "dart pub publish --dry-run"
+    description: "Validate all packages are ready for publishing."
+
+  publish:
+    packageFilters:
+      ignore:
+        - "example"
+    run: melos publish
+    description: "Publish all updated packages to pub.dev."
+
+command:
+  version:
+    linkToCommits: true
+    message: "chore(release): publish v{new_version}"

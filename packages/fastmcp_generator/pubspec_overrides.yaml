@@ -1,0 +1,4 @@
+# melos_managed_dependency_overrides: fastmcp
+dependency_overrides:
+  fastmcp:
+    path: ../fastmcp
