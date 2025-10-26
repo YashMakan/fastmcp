@@ -52,7 +52,8 @@ dart pub add --dev fastmcp_generator
 In your `main.dart` (or any library file), create a `FastMCP` instance and annotate a function.
 
 ```dart
-import 'package:fastmcp/fast_mcp.dart';
+import 'package:fastmcp/fastmcp.dart';
+
 part 'main.fastmcp.g.dart';
 
 final app = FastMCP(name: 'MyFirstServer');
@@ -61,8 +62,8 @@ final app = FastMCP(name: 'MyFirstServer');
 /// The doc comment is automatically used as the tool's description.
 @Tool()
 String greet({
-    /// This description will auto assigned to the parameter
-    required String name
+  /// This description will auto assigned to the parameter
+  required String name,
 }) {
   return 'Hello, $name!';
 }
@@ -73,6 +74,7 @@ void main() async {
     transport: StdioTransport(),
   );
 }
+
 ```
 
 ### 3. Run the Code Generator
