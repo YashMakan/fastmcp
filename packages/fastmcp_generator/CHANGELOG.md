@@ -1,3 +1,7 @@
+## 0.1.2
+
+- version bump to 0.1.2
+
 ## 0.1.1
 
 - No change in FastMCP Generator
