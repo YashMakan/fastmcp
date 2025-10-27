@@ -1,3 +1,8 @@
+## 0.1.1
+
+- meta package constrains lowered
+- ping method added
+
 ## 0.1.0
 
 * Initial release of the `fastmcp` framework.
