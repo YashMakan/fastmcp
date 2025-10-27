@@ -1,3 +1,7 @@
+## 0.1.1
+
+- No change in FastMCP Generator
+
 ## 0.1.0
 
 * **Initial Release**

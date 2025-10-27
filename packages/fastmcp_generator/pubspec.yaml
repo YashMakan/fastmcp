@@ -1,6 +1,6 @@
 name: fastmcp_generator
 description: Code generator for the fastmcp framework. Annotate functions to automatically create MCP tools, resources, and prompts.
-version: 0.1.0
+version: 0.1.1
 homepage: https://github.com/yashmakan/fastmcp
 repository: https://github.com/yashmakan/fastmcp
 issue_tracker: https://github.com/yashmakan/fastmcp/issues
