@@ -1,3 +1,7 @@
+## 0.1.2
+
+- version bump from 0.1.1 -> 0.1.2
+
 ## 0.1.1
 
 - meta package constrains lowered
