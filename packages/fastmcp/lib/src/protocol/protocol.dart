@@ -9,6 +9,7 @@ class McpProtocol {
 
   // --- Core Method Names ---
   static const String initialize = 'initialize';
+  static const String ping = 'ping';
 
   // --- Tool Method Names ---
   static const String listTools = 'tools/list';

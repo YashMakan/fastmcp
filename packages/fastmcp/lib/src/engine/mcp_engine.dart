@@ -50,6 +50,7 @@ class McpEngine {
   }) {
     _methodRouter = {
       McpProtocol.initialize: _handleInitialize,
+      McpProtocol.ping: _handlePing,
       McpProtocol.listTools: _handleListTools,
       McpProtocol.callTool: _handleCallTool,
       McpProtocol.listResources: _handleListResources,
@@ -185,6 +186,17 @@ class McpEngine {
       'serverInfo': {'name': name, 'version': version},
       'capabilities': capabilities.toJson(),
     }, newSession.id);
+  }
+
+  /// Handles a ping request by immediately sending back an empty result.
+  /// This is used to verify connection health.
+  Future<void> _handlePing({
+    required TransportMessage event,
+    required ClientSession session,
+    required Map<String, dynamic> params,
+    required dynamic id,
+  }) async {
+    _sendResult(id, {}, session.id);
   }
 
   Future<void> _handleListTools({
