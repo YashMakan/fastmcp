@@ -1,6 +1,6 @@
 name: fastmcp
 description: A fast, declarative, and type-safe server framework for the Model Context Protocol (MCP)
-version: 0.1.2
+version: 0.1.3
 homepage: https://github.com/yashmakan/fastmcp
 repository: https://github.com/yashmakan/fastmcp
 issue_tracker: https://github.com/yashmakan/fastmcp/issues
