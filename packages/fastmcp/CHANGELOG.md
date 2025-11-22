@@ -1,3 +1,7 @@
+## 0.1.4
+
+- Added _meta field in ResourceContent
+
 ## 0.1.3
 
 - Added _meta field in CallToolResult
