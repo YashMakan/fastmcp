@@ -1,3 +1,7 @@
+## 0.1.3
+
+- Added _meta field in CallToolResult
+
 ## 0.1.2
 
 - version bump from 0.1.1 -> 0.1.2
