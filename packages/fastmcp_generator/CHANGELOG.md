@@ -1,3 +1,11 @@
+## 0.1.5
+
+- version bump to 0.1.5
+
+## 0.1.4
+
+- version bump to 0.1.4
+
 ## 0.1.3
 
 - version bump to 0.1.3

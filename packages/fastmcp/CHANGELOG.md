@@ -1,3 +1,11 @@
+## 0.1.5
+
+- Added CORS support & corrected HTTP Transport layer
+
+## 0.1.4
+
+- Added _meta field in ResourceContent
+
 ## 0.1.3
 
 - Added _meta field in CallToolResult

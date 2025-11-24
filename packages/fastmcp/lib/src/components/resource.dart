@@ -6,14 +6,21 @@ class ResourceContent {
   final String uri;
   final String? mimeType;
   final String? text;
+  final Map<String, dynamic>? meta;
 
-  const ResourceContent({required this.uri, this.mimeType, this.text});
+  const ResourceContent({
+    required this.uri,
+    this.mimeType,
+    this.text,
+    this.meta,
+  });
 
   Map<String, dynamic> toJson() {
     return {
       'uri': uri,
       if (mimeType != null) 'mimeType': mimeType,
       if (text != null) 'text': text,
+      if (meta != null) '_meta': meta,
     };
   }
 }
