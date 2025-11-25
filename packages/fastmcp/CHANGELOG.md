@@ -1,5 +1,19 @@
 
 
+## 0.1.10
+
+- Added OAuth Resource Metadata support
+- Added support for OAuth Resource Metadata in HTTP Transport
+- Added Tool securitySchemes support
+
+## 0.1.9
+
+- version bump to 0.1.9
+
+## 0.1.8
+
+- version bump to 0.1.8
+
 ## 0.1.7
 
 - version bump to 0.1.7

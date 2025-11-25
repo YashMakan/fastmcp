@@ -20,10 +20,13 @@ class SessionManager {
 
   // REVERTED: This is the primary method for session creation.
   ClientSession createSession({
+    String? id,
     required Map<String, dynamic> clientInfo,
     required String protocolVersion,
   }) {
-    final sessionId = const Uuid().v4();
+    // Use the ID provided by the transport (SSE), otherwise generate a new one.
+    final sessionId = id ?? const Uuid().v4();
+
     final session = ClientSession(
       id: sessionId,
       connectedAt: DateTime.now(),
@@ -32,7 +35,7 @@ class SessionManager {
     );
     _sessions[sessionId] = session;
     _onConnectController.add(session);
-    log.info('Ceated new session: $sessionId');
+    log.info('Created session: $sessionId');
     return session;
   }
 

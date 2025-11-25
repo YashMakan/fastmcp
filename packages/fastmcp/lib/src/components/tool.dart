@@ -26,12 +26,15 @@ class Tool {
 
   final Map<String, dynamic>? meta;
 
+  final List<Map<String, dynamic>>? securitySchemes;
+
   const Tool({
     this.name,
     this.description,
     this.register = true,
     this.meta,
     this.inputSchema = const {},
+    this.securitySchemes,
   });
 
   Tool copyWith({
@@ -55,6 +58,9 @@ class Tool {
     };
     if (meta != null) {
       json['_meta'] = meta!;
+    }
+    if (securitySchemes != null) {
+      json['securitySchemes'] = securitySchemes!;
     }
     return json;
   }
