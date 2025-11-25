@@ -12,27 +12,7 @@ enum HttpTransportMode { streamable }
 
 typedef AuthValidator = FutureOr<bool> Function(String token);
 
-class OAuthResourceMetadata {
-  final String resource;
-  final List<String> authorizationServers;
-  final List<String>? scopesSupported;
-  final String? resourceDocumentation;
-
-  const OAuthResourceMetadata({
-    required this.resource,
-    required this.authorizationServers,
-    this.scopesSupported,
-    this.resourceDocumentation,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'resource': resource,
-    'authorization_servers': authorizationServers,
-    if (scopesSupported != null) 'scopes_supported': scopesSupported,
-    if (resourceDocumentation != null)
-      'resource_documentation': resourceDocumentation,
-  };
-}
+typedef HttpRequestCallback = FutureOr<void> Function(HttpRequest request);
 
 class HttpTransportConfig {
   late final InternetAddress host;
@@ -49,7 +29,7 @@ class HttpTransportConfig {
 
   final String? resourceMetadataUrl;
 
-  final OAuthResourceMetadata? oauthMetadata;
+  final Map<String, HttpRequestCallback>? extraHandlers;
 
   HttpTransportConfig({
     required this.port,
@@ -59,7 +39,7 @@ class HttpTransportConfig {
     this.authValidator, // Add this
     this.endpoint = '/mcp',
     this.resourceMetadataUrl,
-    this.oauthMetadata,
+    this.extraHandlers,
   }) {
     this.host = host ?? InternetAddress.anyIPv4;
   }
@@ -83,20 +63,20 @@ class HttpTransport implements ServerTransport {
     required int port,
     InternetAddress? host,
     String? authToken,
-    AuthValidator? authValidator, // Add this
+    AuthValidator? authValidator,
     String endpoint = '/mcp',
     String? resourceMetadataUrl,
-    OAuthResourceMetadata? oauthMetadata,
+    Map<String, HttpRequestCallback>? extraHandlers,
   }) {
     return HttpTransport(
       HttpTransportConfig(
         port: port,
         host: host,
         authToken: authToken,
-        authValidator: authValidator, // Pass it
+        authValidator: authValidator,
         endpoint: endpoint,
         resourceMetadataUrl: resourceMetadataUrl,
-        oauthMetadata: oauthMetadata,
+        extraHandlers: extraHandlers,
       ),
     );
   }
@@ -122,16 +102,15 @@ class HttpTransport implements ServerTransport {
   Future<void> _handleRequest(HttpRequest request) async {
     _setCorsHeaders(request.response);
 
-    if (request.method == 'GET' &&
-        request.uri.path == '/.well-known/oauth-protected-resource' &&
-        _config.oauthMetadata != null) {
-      _serveOAuthMetadata(request);
-      return;
-    }
-
     if (request.method == 'OPTIONS') {
       request.response.statusCode = HttpStatus.noContent;
       await request.response.close();
+      return;
+    }
+
+    if (_config.extraHandlers != null &&
+        _config.extraHandlers!.containsKey(request.uri.path)) {
+      await _config.extraHandlers![request.uri.path]!(request);
       return;
     }
 
@@ -185,13 +164,6 @@ class HttpTransport implements ServerTransport {
         await request.response.close();
       } catch (_) {}
     }
-  }
-
-  void _serveOAuthMetadata(HttpRequest request) {
-    final metadata = _config.oauthMetadata!;
-    request.response.headers.contentType = ContentType.json;
-    request.response.write(jsonEncode(metadata.toJson()));
-    request.response.close();
   }
 
   Future<void> _handleSseConnection(HttpRequest request) async {

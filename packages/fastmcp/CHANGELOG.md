@@ -1,4 +1,6 @@
+## 0.1.11
 
+- Added extraHandlers support to HTTP Transport
 
 ## 0.1.10
 
