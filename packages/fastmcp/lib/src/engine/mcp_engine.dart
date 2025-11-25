@@ -86,6 +86,7 @@ class McpEngine {
     log.info('Engine connected to transport.');
   }
 
+  // MODIFIED: This is the corrected dispatch logic for a POST-first handshake.
   Future<void> _dispatchMessage(TransportMessage event) async {
     final message = event.data;
     if (message is! Map<String, dynamic>) {
@@ -101,11 +102,6 @@ class McpEngine {
     }
 
     final id = message['id'];
-
-    if (id != null && event.httpResponse != null) {
-      _httpResponseMap[id] = event.httpResponse!;
-    }
-
     final method = message['method'] as String?;
 
     if (method == null) {
@@ -120,17 +116,22 @@ class McpEngine {
       return;
     }
 
-    final responseStream = message.remove('_http_response') as HttpResponse?;
-    if (id != null && responseStream != null) {
-      _httpResponseMap[id] = responseStream;
-    }
-
-    ClientSession? session;
+    ClientSession session;
+    // The 'initialize' method is special: it CREATES the session.
     if (method == McpProtocol.initialize) {
-      session = ClientSession.placeholder();
+      session = sessionManager.createSession(
+        clientInfo:
+            (message['params'] as Map<String, dynamic>?)?['clientInfo'] ?? {},
+        protocolVersion:
+            (message['params'] as Map<String, dynamic>?)?['protocolVersion'] ??
+            McpProtocol.v2025_03_26,
+      );
+      // Associate the transportId from the POST request with the new session.
+      _transport?.associateSession(event.transportId, session.id);
     } else {
-      session = sessionManager.getSession(event.sessionId);
-      if (session == null) {
+      // For all other methods, a session MUST already exist.
+      final existingSession = sessionManager.getSession(event.sessionId);
+      if (existingSession == null) {
         _sendError(
           id: id,
           error: const McpError(
@@ -141,6 +142,7 @@ class McpEngine {
         );
         return;
       }
+      session = existingSession;
     }
 
     final handler = _methodRouter[method];
@@ -151,7 +153,7 @@ class McpEngine {
           code: McpError.methodNotFound,
           message: "Method '$method' not found",
         ),
-        sessionId: event.sessionId,
+        sessionId: session.id,
       );
       return;
     }
@@ -171,30 +173,24 @@ class McpEngine {
           code: McpError.internalError,
           message: 'Internal Server Error: $e',
         ),
-        sessionId: event.sessionId,
+        sessionId: session.id,
       );
     }
   }
 
+  // MODIFIED: This handler now just sends the response. Session creation happens in dispatch.
   Future<void> _handleInitialize({
     required TransportMessage event,
-    required ClientSession session,
+    required ClientSession
+    session, // This is now the REAL, newly created session.
     required Map<String, dynamic> params,
     required dynamic id,
   }) async {
-    final updatedSession = sessionManager.updateSession(
-      session.id,
-      clientInfo: params['clientInfo'] ?? {},
-      protocolVersion: params['protocolVersion'] ?? McpProtocol.v2025_03_26,
-    );
-
-    _transport?.associateSession(event.transportId, updatedSession.id);
-
     _sendResult(id, {
-      'protocolVersion': updatedSession.protocolVersion,
+      'protocolVersion': session.protocolVersion,
       'serverInfo': {'name': name, 'version': version},
       'capabilities': capabilities.toJson(),
-    }, updatedSession.id);
+    }, session.id);
   }
 
   /// Handles a ping request by immediately sending back an empty result.

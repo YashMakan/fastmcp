@@ -1,4 +1,4 @@
-// packages/fastmcp/lib/src/transport/http_transport.dart (Complete and Corrected)
+// packages/fastmcp/lib/src/transport/http_transport.dart (Corrected for POST-first Handshake)
 
 import 'dart:async';
 import 'dart:convert';
@@ -69,7 +69,7 @@ class HttpTransport implements ServerTransport {
     try {
       _httpServer = await HttpServer.bind(_config.host, _config.port);
       _log.info(
-        '🚀 HTTP server listening on http://${_httpServer!.address.host}:${_httpServer!.port}${_config.endpoint}',
+        '🚀 HTTP servera listening on http://${_httpServer!.address.host}:${_httpServer!.port}${_config.endpoint}',
       );
       _httpServer!.listen(_handleRequest);
     } catch (e, s) {
@@ -120,13 +120,17 @@ class HttpTransport implements ServerTransport {
         e,
         s,
       );
-      if (!request.response.headers.persistentConnection) {
-        await request.response.close();
-      }
+      try {
+        if (!request.response.headers.persistentConnection) {
+          await request.response.close();
+        }
+      } catch (_) {}
     }
   }
 
+  // REVERTED: This now REQUIRES a session ID, as it's for attaching the SSE stream to a pre-existing session.
   Future<void> _handleGet(HttpRequest request) async {
+    final sessionId = request.headers.value('mcp-session-id');
     if (_engine == null) {
       return _sendJsonError(
         request.response,
@@ -134,15 +138,20 @@ class HttpTransport implements ServerTransport {
         'Transport not connected to an engine.',
       );
     }
-
-    final session = _engine!.sessionManager.createSession(
-      clientInfo: {},
-      protocolVersion: '',
-    );
-    final sessionId = session.id;
+    if (sessionId == null ||
+        _engine!.sessionManager.getSession(sessionId) == null) {
+      _log.warning(
+        'GET request received without a valid and active mcp-session-id header.',
+      );
+      return _sendJsonError(
+        request.response,
+        HttpStatus.badRequest,
+        'A valid and active mcp-session-id header is required for GET requests.',
+      );
+    }
 
     _log.info(
-      '✅ Client connected via GET. Created placeholder session: $sessionId',
+      '✅ Attaching GET notification stream to existing session: $sessionId',
     );
 
     request.response.headers.contentType = ContentType(
@@ -153,8 +162,6 @@ class HttpTransport implements ServerTransport {
     request.response.headers.set('Cache-Control', 'no-cache');
     request.response.headers.set('Connection', 'keep-alive');
     request.response.headers.set('mcp-session-id', sessionId);
-
-    _engine!.sessionManager.mapTransportId(sessionId, sessionId);
 
     _sessionNotificationStreams[sessionId]?.close();
     final controller = StreamController<String>();
@@ -171,8 +178,6 @@ class HttpTransport implements ServerTransport {
     controller.stream.listen(
       (data) {
         try {
-          // REMOVED: The incorrect `!request.response.isDone` check.
-          // The try/catch block is the correct way to handle writes to a closed stream.
           request.response.write(data);
         } catch (e) {
           _log.warning(
@@ -198,7 +203,6 @@ class HttpTransport implements ServerTransport {
         'Empty request body.',
       );
     }
-
     try {
       final dynamic jsonData = jsonDecode(body);
       if (jsonData is Map<String, dynamic>) {
@@ -253,12 +257,6 @@ class HttpTransport implements ServerTransport {
       _sessionToActiveRequestId[sessionId] = requestId;
     }
 
-    if (sessionId != null &&
-        _engine?.sessionManager.getSession(sessionId) == null) {
-      _log.warning('Request with unknown session ID "$sessionId" received.');
-      sessionId = null;
-    }
-
     _messageController.add(
       TransportMessage(
         data: message,
@@ -293,7 +291,6 @@ class HttpTransport implements ServerTransport {
         );
         return;
       }
-
       final notificationStream = _sessionNotificationStreams[sessionId];
       if (notificationStream != null && !notificationStream.isClosed) {
         notificationStream.add(payload);
@@ -308,7 +305,6 @@ class HttpTransport implements ServerTransport {
             'No GET stream for session $sessionId. Sending notification via POST stream for request $activeRequestId.',
           );
           try {
-            // REMOVED: The incorrect `!fallbackStream.isDone` check.
             fallbackStream.write(payload);
           } catch (e) {
             _log.warning(
@@ -325,7 +321,6 @@ class HttpTransport implements ServerTransport {
       final requestId = message['id'];
       final responseStream = _requestResponseStreams.remove(requestId);
 
-      // MODIFIED: Removed the incorrect `&& !responseStream.isDone` check.
       if (responseStream != null) {
         try {
           if (sessionId != null) {
@@ -337,7 +332,9 @@ class HttpTransport implements ServerTransport {
             'Failed to write final response for request ID $requestId: $e',
           );
         } finally {
-          responseStream.close();
+          try {
+            responseStream.close();
+          } catch (_) {}
           if (sessionId != null &&
               _sessionToActiveRequestId[sessionId] == requestId) {
             _sessionToActiveRequestId.remove(sessionId);
@@ -353,7 +350,9 @@ class HttpTransport implements ServerTransport {
 
   @override
   void associateSession(String transportId, String sessionId) {
-    // This is handled by the engine and the GET/POST handlers.
+    // The engine now handles all session state. The transport is notified
+    // so it knows which transportId maps to which sessionId.
+    _log.info('Associating transport ID $transportId with session $sessionId.');
   }
 
   void _cleanupSession(String sessionId) {
@@ -390,19 +389,20 @@ class HttpTransport implements ServerTransport {
   void _sendJsonError(HttpResponse response, int code, String message) {
     _log.warning('Sending error to client: [$code] $message');
     try {
-      if (response.headers.contentType == null) {
-        response.headers.contentType = ContentType.json;
+      if (response.connectionInfo != null) {
+        if (response.headers.contentType == null) {
+          response.headers.contentType = ContentType.json;
+        }
+        response.statusCode = code;
+        response.write(
+          jsonEncode({
+            'error': {'code': code, 'message': message},
+          }),
+        );
+        response.close();
       }
-      response.statusCode = code;
-      response.write(
-        jsonEncode({
-          'error': {'code': code, 'message': message},
-        }),
-      );
     } catch (e) {
       _log.severe('Failed to send JSON error response: $e');
-    } finally {
-      response.close();
     }
   }
 
@@ -417,7 +417,11 @@ class HttpTransport implements ServerTransport {
     if (_closeCompleter.isCompleted) return;
     _log.info('Closing HTTP transport...');
     _httpServer?.close(force: true);
-    _requestResponseStreams.values.forEach((s) => s.close());
+    _requestResponseStreams.values.forEach((s) {
+      try {
+        s.close();
+      } catch (_) {}
+    });
     _requestResponseStreams.clear();
     _sessionNotificationStreams.values.forEach((s) => s.close());
     _sessionNotificationStreams.clear();

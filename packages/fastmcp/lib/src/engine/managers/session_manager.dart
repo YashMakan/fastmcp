@@ -18,9 +18,10 @@ class SessionManager {
 
   int getSessionCount() => _sessions.length;
 
+  // REVERTED: This is the primary method for session creation.
   ClientSession createSession({
-    Map<String, dynamic> clientInfo = const {},
-    String protocolVersion = '',
+    required Map<String, dynamic> clientInfo,
+    required String protocolVersion,
   }) {
     final sessionId = const Uuid().v4();
     final session = ClientSession(
@@ -31,36 +32,8 @@ class SessionManager {
     );
     _sessions[sessionId] = session;
     _onConnectController.add(session);
-    log.info('Created new session: $sessionId');
+    log.info('Ceated new session: $sessionId');
     return session;
-  }
-
-  ClientSession updateSession(
-    String sessionId, {
-    required Map<String, dynamic> clientInfo,
-    required String protocolVersion,
-  }) {
-    final existingSession = _sessions[sessionId];
-    if (existingSession == null) {
-      log.warning(
-        'Attempted to update a non-existent session: $sessionId. Creating a new one.',
-      );
-      return createSession(
-        clientInfo: clientInfo,
-        protocolVersion: protocolVersion,
-      );
-    }
-
-    final updatedSession = ClientSession(
-      id: existingSession.id,
-      connectedAt: existingSession.connectedAt,
-      clientInfo: clientInfo,
-      protocolVersion: protocolVersion,
-    );
-
-    _sessions[sessionId] = updatedSession;
-    log.info('Session $sessionId updated with client info.');
-    return updatedSession;
   }
 
   void mapTransportId(String transportId, String sessionId) {

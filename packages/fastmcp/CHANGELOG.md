@@ -1,4 +1,9 @@
 
+
+## 0.1.7
+
+- version bump to 0.1.7
+
 ## 0.1.6
 
 - version bump to 0.1.6
