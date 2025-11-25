@@ -167,10 +167,7 @@ class HttpTransport implements ServerTransport {
   }
 
   Future<void> _handleSseConnection(HttpRequest request) async {
-    // Generate a new Session ID
     final sessionId = const Uuid().v4();
-
-    // Inform the engine about the new session immediately
     _log.info('New SSE connection established. ID: $sessionId');
 
     request.response.headers.contentType = ContentType(
@@ -180,39 +177,40 @@ class HttpTransport implements ServerTransport {
     );
     request.response.headers.set('Cache-Control', 'no-cache');
     request.response.headers.set('Connection', 'keep-alive');
+    // Important for SSE to flush immediately
+    request.response.bufferOutput = false;
 
-    // Create a controller for this specific connection
     final controller = StreamController<String>();
     _sseControllers[sessionId] = controller;
 
-    // Cleanup on disconnect
-    request.response.done.whenComplete(() {
-      _log.info('Client disconnected SSE stream: $sessionId');
-      _sseControllers.remove(sessionId);
-      _engine?.sessionManager.endSession(sessionId);
-    });
+    // Monitor for client disconnect to cleanup
+    request.response.done.then((_) {
+      if (_sseControllers.containsKey(sessionId)) {
+        _log.info('Client disconnected SSE stream: $sessionId');
+        _sseControllers.remove(sessionId);
+        _engine?.sessionManager.endSession(sessionId);
+        if (!controller.isClosed) controller.close();
+      }
+    }, onError: (_) {});
 
-    // Pipe the controller to the response
-    controller.stream.listen(
-      (data) {
-        try {
-          request.response.write(data);
-          request.response.flush();
-        } catch (e) {
-          controller.close();
-        }
-      },
-      onDone: () => request.response.close(),
-      onError: (_) => request.response.close(),
-    );
-
-    // CRITICAL STEP: Send the 'endpoint' event.
-    // This tells the client where to send POST requests.
-    // We append the sessionId as a query parameter.
+    // Queue the endpoint event
     final postEndpoint = '${_config.endpoint}?sessionId=$sessionId';
-
     _sendSseEvent(controller, 'endpoint', postEndpoint);
     _log.info('Sent endpoint event: $postEndpoint');
+
+    try {
+      // Pipe controller -> response
+      await request.response.addStream(
+        controller.stream.map((s) => utf8.encode(s)),
+      );
+    } catch (_) {
+      // Ignore errors (client disconnected)
+    } finally {
+      // Ensure response is closed
+      await request.response.close();
+      // Double check cleanup
+      _sseControllers.remove(sessionId);
+    }
   }
 
   Future<void> _handlePost(HttpRequest request) async {

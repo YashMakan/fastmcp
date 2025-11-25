@@ -1,3 +1,8 @@
+
+## 0.1.12
+
+- Added SSE connection cleanup
+
 ## 0.1.11
 
 - Added extraHandlers support to HTTP Transport
