@@ -1,3 +1,34 @@
+
+## 0.1.12
+
+- Added SSE connection cleanup
+
+## 0.1.11
+
+- Added extraHandlers support to HTTP Transport
+
+## 0.1.10
+
+- Added OAuth Resource Metadata support
+- Added support for OAuth Resource Metadata in HTTP Transport
+- Added Tool securitySchemes support
+
+## 0.1.9
+
+- version bump to 0.1.9
+
+## 0.1.8
+
+- version bump to 0.1.8
+
+## 0.1.7
+
+- version bump to 0.1.7
+
+## 0.1.6
+
+- version bump to 0.1.6
+
 ## 0.1.5
 
 - Added CORS support & corrected HTTP Transport layer

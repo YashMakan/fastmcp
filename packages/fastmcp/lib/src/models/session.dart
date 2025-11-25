@@ -14,13 +14,4 @@ class ClientSession {
     required this.clientInfo,
     required this.protocolVersion,
   });
-
-  factory ClientSession.placeholder() {
-    return ClientSession(
-      id: 'placeholder',
-      connectedAt: DateTime.now(),
-      clientInfo: {},
-      protocolVersion: '',
-    );
-  }
 }

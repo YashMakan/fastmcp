@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fastmcp/src/models/session.dart';
+import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 class SessionManager {
@@ -9,17 +10,23 @@ class SessionManager {
   final _onConnectController = StreamController<ClientSession>.broadcast();
   final _onDisconnectController = StreamController<ClientSession>.broadcast();
 
+  final Logger log = Logger('SessionManager');
+
   Stream<ClientSession> get onConnect => _onConnectController.stream;
 
   Stream<ClientSession> get onDisconnect => _onDisconnectController.stream;
 
   int getSessionCount() => _sessions.length;
 
+  // REVERTED: This is the primary method for session creation.
   ClientSession createSession({
+    String? id,
     required Map<String, dynamic> clientInfo,
     required String protocolVersion,
   }) {
-    final sessionId = const Uuid().v4();
+    // Use the ID provided by the transport (SSE), otherwise generate a new one.
+    final sessionId = id ?? const Uuid().v4();
+
     final session = ClientSession(
       id: sessionId,
       connectedAt: DateTime.now(),
@@ -28,6 +35,7 @@ class SessionManager {
     );
     _sessions[sessionId] = session;
     _onConnectController.add(session);
+    log.info('Created session: $sessionId');
     return session;
   }
 
@@ -44,6 +52,7 @@ class SessionManager {
     if (session != null) {
       _transportIdToSessionId.removeWhere((key, value) => value == sessionId);
       _onDisconnectController.add(session);
+      log.info('Session ended: $sessionId');
     }
   }
 
