@@ -1,3 +1,8 @@
+
+## 0.1.6
+
+- version bump to 0.1.6
+
 ## 0.1.5
 
 - Added CORS support & corrected HTTP Transport layer

@@ -1,7 +1,10 @@
+// packages/fastmcp/lib/src/transport/http_transport.dart (Complete and Corrected)
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:fastmcp/src/engine/mcp_engine.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
@@ -34,14 +37,11 @@ class HttpTransport implements ServerTransport {
   final _closeCompleter = Completer<void>();
   HttpServer? _httpServer;
 
-  // Maps a request ID to its temporary response stream for POST requests.
+  McpEngine? _engine;
+
   final Map<dynamic, HttpResponse> _requestResponseStreams = {};
-  // Maps a session ID to its long-lived SSE stream for GET requests.
   final Map<String, StreamController<String>> _sessionNotificationStreams = {};
-  // Maps a session ID to the ID of its currently active tool call request.
   final Map<String, dynamic> _sessionToActiveRequestId = {};
-  // Holds all currently active session IDs.
-  final Set<String> _activeSessions = {};
 
   HttpTransport(this._config);
 
@@ -59,6 +59,10 @@ class HttpTransport implements ServerTransport {
         endpoint: endpoint,
       ),
     );
+  }
+
+  void setEngine(McpEngine engine) {
+    _engine = engine;
   }
 
   Future<void> start() async {
@@ -122,6 +126,69 @@ class HttpTransport implements ServerTransport {
     }
   }
 
+  Future<void> _handleGet(HttpRequest request) async {
+    if (_engine == null) {
+      return _sendJsonError(
+        request.response,
+        HttpStatus.internalServerError,
+        'Transport not connected to an engine.',
+      );
+    }
+
+    final session = _engine!.sessionManager.createSession(
+      clientInfo: {},
+      protocolVersion: '',
+    );
+    final sessionId = session.id;
+
+    _log.info(
+      '✅ Client connected via GET. Created placeholder session: $sessionId',
+    );
+
+    request.response.headers.contentType = ContentType(
+      'text',
+      'event-stream',
+      charset: 'utf-8',
+    );
+    request.response.headers.set('Cache-Control', 'no-cache');
+    request.response.headers.set('Connection', 'keep-alive');
+    request.response.headers.set('mcp-session-id', sessionId);
+
+    _engine!.sessionManager.mapTransportId(sessionId, sessionId);
+
+    _sessionNotificationStreams[sessionId]?.close();
+    final controller = StreamController<String>();
+    _sessionNotificationStreams[sessionId] = controller;
+
+    request.response.done.whenComplete(() {
+      _log.info(
+        'GET notification stream for session $sessionId closed by client.',
+      );
+      _cleanupSession(sessionId);
+      _engine!.sessionManager.endSession(sessionId);
+    });
+
+    controller.stream.listen(
+      (data) {
+        try {
+          // REMOVED: The incorrect `!request.response.isDone` check.
+          // The try/catch block is the correct way to handle writes to a closed stream.
+          request.response.write(data);
+        } catch (e) {
+          _log.warning(
+            'Failed to write to GET stream for session $sessionId, closing. Error: $e',
+          );
+          controller.close();
+        }
+      },
+      onDone: () => request.response.close(),
+      onError: (_) => request.response.close(),
+      cancelOnError: true,
+    );
+
+    controller.add(': welcome to session $sessionId\n\n');
+  }
+
   Future<void> _handlePost(HttpRequest request) async {
     final body = await utf8.decodeStream(request);
     if (body.isEmpty) {
@@ -159,10 +226,7 @@ class HttpTransport implements ServerTransport {
     final requestId = message['id'];
     var sessionId = request.headers.value('mcp-session-id');
 
-    // For POST requests that expect a response, we hold onto the response stream.
     if (requestId != null) {
-      // Set SSE headers for the response stream even on POST, as notifications
-      // can be sent as a fallback on this stream if the GET stream is not available.
       request.response.headers.contentType = ContentType(
         'text',
         'event-stream',
@@ -172,7 +236,6 @@ class HttpTransport implements ServerTransport {
       request.response.headers.set('Connection', 'keep-alive');
       _requestResponseStreams[requestId] = request.response;
 
-      // Cleanup when the POST connection eventually closes.
       request.response.done.whenComplete(() {
         _requestResponseStreams.remove(requestId);
         if (sessionId != null &&
@@ -185,23 +248,15 @@ class HttpTransport implements ServerTransport {
       });
     }
 
-    // Track the active tool call for a session to use as a notification fallback.
     final isToolCall = (message['method'] == 'tools/call');
     if (sessionId != null && requestId != null && isToolCall) {
       _sessionToActiveRequestId[sessionId] = requestId;
     }
 
-    // The first message from a client on a new session MUST be 'initialize'.
-    // Here we trust the session ID provided in the header because the client
-    // could only have learned it from a previous successful GET request.
     if (sessionId != null &&
-        !_activeSessions.contains(sessionId) &&
-        message['method'] != 'initialize') {
-      _log.warning(
-        'Request with unknown or inactive session ID "$sessionId" received for method "${message['method']}". Ignoring session.',
-      );
-      sessionId =
-          null; // Treat as an invalid request for routing purposes in the engine.
+        _engine?.sessionManager.getSession(sessionId) == null) {
+      _log.warning('Request with unknown session ID "$sessionId" received.');
+      sessionId = null;
     }
 
     _messageController.add(
@@ -213,69 +268,11 @@ class HttpTransport implements ServerTransport {
     );
   }
 
-  // =========== MAJOR CHANGE AREA START ===========
-  Future<void> _handleGet(HttpRequest request) async {
-    // A GET request establishes a new session and a long-lived SSE stream.
-    // It does not require a session ID header.
-
-    final sessionId = const Uuid().v4();
-    _activeSessions.add(sessionId);
-
-    _log.info(
-      '✅ New client connected. Establishing SSE stream for session: $sessionId',
-    );
-
-    // Set SSE headers to keep the connection open.
-    request.response.headers.contentType = ContentType(
-      'text',
-      'event-stream',
-      charset: 'utf-8',
-    );
-    request.response.headers.set('Cache-Control', 'no-cache');
-    request.response.headers.set('Connection', 'keep-alive');
-
-    // CRITICAL: Send the new session ID back to the client in a header.
-    request.response.headers.set('mcp-session-id', sessionId);
-
-    // Clean up any old stream controller for this ID just in case of a rapid reconnect.
-    _sessionNotificationStreams[sessionId]?.close();
-
-    final controller = StreamController<String>();
-    _sessionNotificationStreams[sessionId] = controller;
-
-    // When the client closes the connection, clean up server-side resources.
-    request.response.done.whenComplete(() {
-      _log.info(
-        'GET notification stream for session $sessionId closed by client.',
-      );
-      _cleanupSession(sessionId);
-    });
-
-    // Pipe the controller's events to the HTTP response.
-    controller.stream.listen(
-      (data) {
-        try {
-          request.response.write(data);
-        } catch (e) {
-          _log.warning(
-            'Failed to write to GET stream for session $sessionId, closing. Error: $e',
-          );
-          controller.close(); // This will trigger onDone below.
-        }
-      },
-      onDone: () => request.response.close(),
-      onError: (_) => request.response.close(),
-    );
-
-    // Send an initial comment to confirm the connection is open.
-    controller.add(': welcome to session $sessionId\n\n');
-  }
-  // =========== MAJOR CHANGE AREA END ===========
-
   Future<void> _handleDelete(HttpRequest request) async {
     final sessionId = request.headers.value('mcp-session-id');
     if (sessionId != null) {
       _cleanupSession(sessionId);
+      _engine?.sessionManager.endSession(sessionId);
     }
     request.response.statusCode = HttpStatus.noContent;
     await request.response.close();
@@ -301,7 +298,6 @@ class HttpTransport implements ServerTransport {
       if (notificationStream != null && !notificationStream.isClosed) {
         notificationStream.add(payload);
       } else {
-        // Fallback for clients that might not support the GET stream correctly.
         final activeRequestId = _sessionToActiveRequestId[sessionId];
         final fallbackStream = (activeRequestId != null)
             ? _requestResponseStreams[activeRequestId]
@@ -312,6 +308,7 @@ class HttpTransport implements ServerTransport {
             'No GET stream for session $sessionId. Sending notification via POST stream for request $activeRequestId.',
           );
           try {
+            // REMOVED: The incorrect `!fallbackStream.isDone` check.
             fallbackStream.write(payload);
           } catch (e) {
             _log.warning(
@@ -325,10 +322,10 @@ class HttpTransport implements ServerTransport {
         }
       }
     } else {
-      // This is a final response to a POST request.
       final requestId = message['id'];
       final responseStream = _requestResponseStreams.remove(requestId);
 
+      // MODIFIED: Removed the incorrect `&& !responseStream.isDone` check.
       if (responseStream != null) {
         try {
           if (sessionId != null) {
@@ -341,7 +338,6 @@ class HttpTransport implements ServerTransport {
           );
         } finally {
           responseStream.close();
-          // The main request is done, so it's no longer the active fallback.
           if (sessionId != null &&
               _sessionToActiveRequestId[sessionId] == requestId) {
             _sessionToActiveRequestId.remove(sessionId);
@@ -357,19 +353,11 @@ class HttpTransport implements ServerTransport {
 
   @override
   void associateSession(String transportId, String sessionId) {
-    // This method is called by the engine after a successful 'initialize'
-    // It confirms that a pre-initialized session is now fully active.
-    if (!_activeSessions.contains(sessionId)) {
-      _activeSessions.add(sessionId);
-      _log.info('Session $sessionId has been formally initialized.');
-    }
-    // No need to log "New session activated" here anymore, as it's
-    // more accurately logged when the GET request first arrives.
+    // This is handled by the engine and the GET/POST handlers.
   }
 
   void _cleanupSession(String sessionId) {
-    _log.info('Cleaning up resources for session: $sessionId');
-    _activeSessions.remove(sessionId);
+    _log.info('Cleaning up transport resources for session: $sessionId');
     _sessionNotificationStreams.remove(sessionId)?.close();
     final activeRequestId = _sessionToActiveRequestId.remove(sessionId);
     if (activeRequestId != null) {
@@ -396,21 +384,26 @@ class HttpTransport implements ServerTransport {
       'Access-Control-Allow-Headers',
       'Content-Type, Authorization, mcp-session-id',
     );
-    // NEW & CRITICAL: Expose the custom header so the client's browser can read it.
     response.headers.set('Access-Control-Expose-Headers', 'mcp-session-id');
   }
 
   void _sendJsonError(HttpResponse response, int code, String message) {
-    if (response.headers.contentType == null) {
-      response.headers.contentType = ContentType.json;
+    _log.warning('Sending error to client: [$code] $message');
+    try {
+      if (response.headers.contentType == null) {
+        response.headers.contentType = ContentType.json;
+      }
+      response.statusCode = code;
+      response.write(
+        jsonEncode({
+          'error': {'code': code, 'message': message},
+        }),
+      );
+    } catch (e) {
+      _log.severe('Failed to send JSON error response: $e');
+    } finally {
+      response.close();
     }
-    response.statusCode = code;
-    response.write(
-      jsonEncode({
-        'error': {'code': code, 'message': message},
-      }),
-    );
-    response.close();
   }
 
   @override
@@ -424,15 +417,10 @@ class HttpTransport implements ServerTransport {
     if (_closeCompleter.isCompleted) return;
     _log.info('Closing HTTP transport...');
     _httpServer?.close(force: true);
-    for (var s in _requestResponseStreams.values) {
-      s.close();
-    }
+    _requestResponseStreams.values.forEach((s) => s.close());
     _requestResponseStreams.clear();
-    for (var s in _sessionNotificationStreams.values) {
-      s.close();
-    }
+    _sessionNotificationStreams.values.forEach((s) => s.close());
     _sessionNotificationStreams.clear();
-    _activeSessions.clear();
     _sessionToActiveRequestId.clear();
     _messageController.close();
     _closeCompleter.complete();

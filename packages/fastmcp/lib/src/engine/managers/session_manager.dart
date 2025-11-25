@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fastmcp/src/models/session.dart';
+import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 class SessionManager {
@@ -9,6 +10,8 @@ class SessionManager {
   final _onConnectController = StreamController<ClientSession>.broadcast();
   final _onDisconnectController = StreamController<ClientSession>.broadcast();
 
+  final Logger log = Logger('SessionManager');
+
   Stream<ClientSession> get onConnect => _onConnectController.stream;
 
   Stream<ClientSession> get onDisconnect => _onDisconnectController.stream;
@@ -16,8 +19,8 @@ class SessionManager {
   int getSessionCount() => _sessions.length;
 
   ClientSession createSession({
-    required Map<String, dynamic> clientInfo,
-    required String protocolVersion,
+    Map<String, dynamic> clientInfo = const {},
+    String protocolVersion = '',
   }) {
     final sessionId = const Uuid().v4();
     final session = ClientSession(
@@ -28,7 +31,36 @@ class SessionManager {
     );
     _sessions[sessionId] = session;
     _onConnectController.add(session);
+    log.info('Created new session: $sessionId');
     return session;
+  }
+
+  ClientSession updateSession(
+    String sessionId, {
+    required Map<String, dynamic> clientInfo,
+    required String protocolVersion,
+  }) {
+    final existingSession = _sessions[sessionId];
+    if (existingSession == null) {
+      log.warning(
+        'Attempted to update a non-existent session: $sessionId. Creating a new one.',
+      );
+      return createSession(
+        clientInfo: clientInfo,
+        protocolVersion: protocolVersion,
+      );
+    }
+
+    final updatedSession = ClientSession(
+      id: existingSession.id,
+      connectedAt: existingSession.connectedAt,
+      clientInfo: clientInfo,
+      protocolVersion: protocolVersion,
+    );
+
+    _sessions[sessionId] = updatedSession;
+    log.info('Session $sessionId updated with client info.');
+    return updatedSession;
   }
 
   void mapTransportId(String transportId, String sessionId) {
@@ -44,6 +76,7 @@ class SessionManager {
     if (session != null) {
       _transportIdToSessionId.removeWhere((key, value) => value == sessionId);
       _onDisconnectController.add(session);
+      log.info('Session ended: $sessionId');
     }
   }
 

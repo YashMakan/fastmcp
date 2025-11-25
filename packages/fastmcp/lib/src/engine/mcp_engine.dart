@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:fastmcp/fastmcp.dart';
 import 'package:fastmcp/src/components/capabilities.dart';
 import 'package:fastmcp/src/models/context.dart';
 import 'package:fastmcp/src/models/session.dart';
@@ -76,6 +77,11 @@ class McpEngine {
   void connect(ServerTransport transport) {
     if (_transport != null) throw StateError('Engine is already connected.');
     _transport = transport;
+
+    if (transport is HttpTransport) {
+      transport.setEngine(this);
+    }
+
     _transportSubscription = transport.onMessage.listen(_dispatchMessage);
     log.info('Engine connected to transport.');
   }
@@ -176,16 +182,19 @@ class McpEngine {
     required Map<String, dynamic> params,
     required dynamic id,
   }) async {
-    final newSession = sessionManager.createSession(
+    final updatedSession = sessionManager.updateSession(
+      session.id,
       clientInfo: params['clientInfo'] ?? {},
       protocolVersion: params['protocolVersion'] ?? McpProtocol.v2025_03_26,
     );
-    _transport?.associateSession(event.transportId, newSession.id);
+
+    _transport?.associateSession(event.transportId, updatedSession.id);
+
     _sendResult(id, {
-      'protocolVersion': newSession.protocolVersion,
+      'protocolVersion': updatedSession.protocolVersion,
       'serverInfo': {'name': name, 'version': version},
       'capabilities': capabilities.toJson(),
-    }, newSession.id);
+    }, updatedSession.id);
   }
 
   /// Handles a ping request by immediately sending back an empty result.

@@ -8,10 +8,10 @@ environment:
 
 # Add regular dependencies here.
 dependencies:
-  fastmcp: ^0.1.4
+  fastmcp: ^0.1.6
   # path: ^1.8.0
 
 dev_dependencies:
   build_runner: ^2.4.6
-  fastmcp_generator: ^0.1.4
+  fastmcp_generator: ^0.1.6
   lints: ^5.0.0
