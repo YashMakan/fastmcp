@@ -1,4 +1,4 @@
-// packages/fastmcp/lib/src/engine/mcp_engine.dart (Corrected)
+// FILE: ./src/engine/mcp_engine.dart (MODIFIED AND CORRECTED)
 
 import 'dart:async';
 import 'dart:io';
@@ -52,8 +52,7 @@ class McpEngine {
     _methodRouter = {
       McpProtocol.initialize: _handleInitialize,
       McpProtocol.ping: _handlePing,
-      'notifications/initialized':
-          _handleInitializedNotification, // ADD THIS HANDLER
+      'notifications/initialized': _handleInitializedNotification,
       McpProtocol.listTools: _handleListTools,
       McpProtocol.callTool: _handleCallTool,
       McpProtocol.listResources: _handleListResources,
@@ -90,8 +89,9 @@ class McpEngine {
   Future<void> _dispatchMessage(TransportMessage event) async {
     final message = event.data;
     if (message is! Map<String, dynamic>) {
+      final id = (event.data is Map) ? event.data['id'] : null;
       _sendError(
-        id: null,
+        id: id,
         error: const McpError(
           code: McpError.parseError,
           message: "Invalid message format",
@@ -116,27 +116,35 @@ class McpEngine {
       return;
     }
 
-    ClientSession session;
+    ClientSession? session;
     if (method == McpProtocol.initialize) {
-      // MODIFIED: Pass the sessionId from the transport event to createSession.
-      // In HTTP/SSE, this ID was generated during the GET request and passed
-      // back via the POST query param.
+      // Per spec, an initialize request MUST NOT have a session ID.
+      if (event.sessionId != null) {
+        _sendError(
+          id: id,
+          error: const McpError(
+            code: McpError.invalidRequest,
+            message: "Cannot re-initialize an existing session.",
+          ),
+          sessionId: event.sessionId,
+        );
+        return;
+      }
+
+      // Create a brand new session. The ID is generated here by the engine.
       session = sessionManager.createSession(
-        id: event.sessionId,
         clientInfo:
             (message['params'] as Map<String, dynamic>?)?['clientInfo'] ?? {},
         protocolVersion:
             (message['params'] as Map<String, dynamic>?)?['protocolVersion'] ??
             McpProtocol.v2025_03_26,
       );
-
-      // Associate the transportId with the session.
-      // For HttpTransport, transportId and session.id are now identical, which is fine.
+      // Associate the temporary transport ID with the new, permanent session ID.
       _transport?.associateSession(event.transportId, session.id);
     } else {
       // For all other methods, a session MUST already exist.
-      final existingSession = sessionManager.getSession(event.sessionId);
-      if (existingSession == null) {
+      session = sessionManager.getSession(event.sessionId);
+      if (session == null) {
         _sendError(
           id: id,
           error: McpError(
@@ -147,7 +155,6 @@ class McpEngine {
         );
         return;
       }
-      session = existingSession;
     }
 
     final handler = _methodRouter[method];
@@ -183,7 +190,6 @@ class McpEngine {
     }
   }
 
-  // This handler now only sends the response. Session creation happens in dispatch.
   Future<void> _handleInitialize({
     required TransportMessage event,
     required ClientSession session, // This is the REAL, newly created session.
@@ -191,13 +197,13 @@ class McpEngine {
     required dynamic id,
   }) async {
     _sendResult(id, {
+      'sessionId': session.id,
       'protocolVersion': session.protocolVersion,
       'serverInfo': {'name': name, 'version': version},
       'capabilities': capabilities.toJson(),
     }, session.id);
   }
 
-  // NEW: Handler for the client's confirmation notification.
   Future<void> _handleInitializedNotification({
     required TransportMessage event,
     required ClientSession session,
@@ -207,13 +213,11 @@ class McpEngine {
     log.info(
       'Client confirmed session initialization for session: ${session.id}',
     );
-    // Per the spec, the server replies with 202 Accepted and no body.
-    // The transport layer is responsible for sending the correct HTTP status code.
-    // We signal this by sending a null result for a null ID (notification).
-    _sendResult(id, null, session.id);
+    // A notification (id == null) has its HTTP response (202 Accepted)
+    // handled entirely by the transport layer. The engine does nothing here.
   }
 
-  // --- The rest of the handlers are unchanged ---
+  // --- The rest of the handlers are unchanged in logic ---
   Future<void> _handlePing({
     required TransportMessage event,
     required ClientSession session,
@@ -410,12 +414,8 @@ class McpEngine {
   }
 
   void _sendResult(dynamic id, dynamic result, String? sessionId) {
-    // A null ID indicates a notification, which doesn't have a result in its response.
     if (id == null) {
-      _transport?.send(
-        null,
-        sessionId: sessionId,
-      ); // Signal to transport to send 202 Accepted
+      // This was a notification. Its response is handled by the transport.
       return;
     }
     _transport?.send({
@@ -430,7 +430,9 @@ class McpEngine {
     required McpError error,
     String? sessionId,
   }) {
+    // Errors for notifications are logged, not sent back to the client.
     if (id == null) return;
+
     _transport?.send({
       'jsonrpc': '2.0',
       'id': id,

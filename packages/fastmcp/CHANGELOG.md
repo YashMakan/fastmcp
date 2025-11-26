@@ -1,4 +1,10 @@
 
+
+
+## 0.1.13
+
+- version bump to 0.1.13
+
 ## 0.1.12
 
 - Added SSE connection cleanup
